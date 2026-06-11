@@ -19,9 +19,9 @@ namespace ImageGalleryViewer
     {
         // Future experiments should switch back to beta and compile to ImageGalleryViewer_beta_v{Version}.exe.
         public const string Channel = "production";
-        public const string Version = "0.3.2";
+        public const string Version = "0.4.5";
         public const string ExeName = "ImageGalleryViewer.exe";
-        public const string WindowTitle = "Image Gallery Viewer v0.3.2";
+        public const string WindowTitle = "Image Gallery Viewer v0.4.5";
     }
 
     internal static class Program
@@ -185,7 +185,7 @@ namespace ImageGalleryViewer
 
             Title = AppVersion.WindowTitle;
             Width = 620;
-            Height = 720;
+            Height = 1000;
             MinWidth = 420;
             MinHeight = 320;
             WindowStartupLocation = WindowStartupLocation.CenterScreen;
@@ -230,13 +230,21 @@ namespace ImageGalleryViewer
             list.MouseLeftButtonUp += OnListMouseLeftButtonUp;
             list.KeyDown += OnListKeyDown;
 
-            foreach (ImageSource source in sources)
-                list.Items.Add(source.DisplayName);
+            Style itemStyle = new Style(typeof(ListBoxItem));
+            itemStyle.Setters.Add(new Setter(ListBoxItem.HorizontalContentAlignmentProperty, HorizontalAlignment.Stretch));
+            itemStyle.Setters.Add(new Setter(ListBoxItem.PaddingProperty, new Thickness(6, 4, 6, 4)));
+            list.ItemContainerStyle = itemStyle;
 
             if (sources.Count == 0)
+            {
                 list.Items.Add("Папки img с поддерживаемыми изображениями не найдены");
+            }
             else
+            {
+                foreach (ImageSource source in sources)
+                    list.Items.Add(BuildSourceRow(source));
                 list.SelectedIndex = 0;
+            }
 
             loadingPanel = new DockPanel();
             loadingPanel.LastChildFill = true;
@@ -273,6 +281,78 @@ namespace ImageGalleryViewer
             rootPanel.Children.Add(loadingPanel);
             rootPanel.Children.Add(list);
             Content = rootPanel;
+        }
+
+        private FrameworkElement BuildSourceRow(ImageSource source)
+        {
+            DockPanel row = new DockPanel();
+            row.LastChildFill = true;
+
+            Border chip = BuildStatsChip(source);
+            DockPanel.SetDock(chip, Dock.Right);
+
+            TextBlock name = new TextBlock();
+            name.Text = source.DisplayName;
+            name.Foreground = Brushes.White;
+            name.VerticalAlignment = VerticalAlignment.Center;
+            name.TextTrimming = TextTrimming.CharacterEllipsis;
+            name.Margin = new Thickness(2, 0, 12, 0);
+
+            row.Children.Add(chip);
+            row.Children.Add(name);
+            return row;
+        }
+
+        private Border BuildStatsChip(ImageSource source)
+        {
+            SolidColorBrush normal = new SolidColorBrush(Color.FromRgb(56, 108, 165));
+            SolidColorBrush hover = new SolidColorBrush(Color.FromRgb(78, 138, 200));
+
+            TextBlock icon = new TextBlock();
+            icon.Text = "📊"; // 📊
+            icon.FontFamily = new FontFamily("Segoe UI Emoji");
+            icon.FontSize = 14;
+            icon.Foreground = Brushes.White;
+            icon.HorizontalAlignment = HorizontalAlignment.Center;
+            icon.VerticalAlignment = VerticalAlignment.Center;
+
+            Border chip = new Border();
+            chip.Background = normal;
+            chip.CornerRadius = new CornerRadius(5);
+            chip.Padding = new Thickness(9, 4, 9, 4);
+            chip.Margin = new Thickness(8, 1, 4, 1);
+            chip.VerticalAlignment = VerticalAlignment.Center;
+            chip.Cursor = Cursors.Hand;
+            chip.Child = icon;
+            chip.ToolTip = "Открыть статистику этой папки";
+
+            chip.MouseEnter += delegate { chip.Background = hover; };
+            chip.MouseLeave += delegate { chip.Background = normal; };
+            chip.MouseLeftButtonDown += delegate(object s, MouseButtonEventArgs e) { e.Handled = true; };
+            chip.MouseLeftButtonUp += delegate(object s, MouseButtonEventArgs e)
+            {
+                e.Handled = true;
+                OpenStats(source);
+            };
+
+            return chip;
+        }
+
+        private void OpenStats(ImageSource source)
+        {
+            if (isLoading)
+                return;
+
+            TileWindow stats = new TileWindow(source, TileMode.Stats);
+            stats.Owner = this;
+            stats.Show();
+        }
+
+        private void ShowSelectGallery(ImageSource source, string firstRepFileName)
+        {
+            TileWindow tiles = new TileWindow(source, TileMode.Select, firstRepFileName);
+            tiles.Closed += delegate { Show(); };
+            tiles.Show();
         }
 
         private void ShowHelpWindow()
@@ -333,13 +413,13 @@ namespace ImageGalleryViewer
 
             isLoading = true;
             cancelLoading = false;
-            list.IsEnabled = false;
             loadingPanel.Visibility = Visibility.Visible;
             progress.Value = 0;
             progressText.Text = "0%";
 
+            ImageSource selected = sources[list.SelectedIndex];
             System.Drawing.Rectangle screenBounds = GetCurrentScreenBounds();
-            ViewerWindow viewer = new ViewerWindow(sources[list.SelectedIndex], screenBounds.Width, screenBounds.Height);
+            ViewerWindow viewer = new ViewerWindow(selected, screenBounds.Width, screenBounds.Height);
             progressText.Text = viewer.ImageCount <= 0 ? "0%" : "0/" + viewer.ImageCount.ToString() + " (0%)";
             viewer.BuildImageElementsIncremental(
                 delegate(int done, int total)
@@ -352,7 +432,6 @@ namespace ImageGalleryViewer
                 delegate(bool cancelled)
                 {
                     isLoading = false;
-                    list.IsEnabled = true;
                     loadingPanel.Visibility = Visibility.Collapsed;
 
                     if (cancelled)
@@ -362,7 +441,7 @@ namespace ImageGalleryViewer
                         return;
                     }
 
-                    viewer.Closed += delegate { Show(); };
+                    viewer.Closed += delegate { ShowSelectGallery(selected, viewer.LastViewedRepFileName); };
                     Hide();
                     viewer.Show();
                 });
@@ -412,6 +491,8 @@ namespace ImageGalleryViewer
         {
             get { return items.Count; }
         }
+
+        public string LastViewedRepFileName { get; private set; }
 
         public ViewerWindow(ImageSource source, int targetDecodePixelWidth, int targetViewportPixelHeight)
         {
@@ -578,11 +659,32 @@ namespace ImageGalleryViewer
 
         protected override void OnClosed(EventArgs e)
         {
+            CaptureLastViewedBlock();
             isClosed = true;
             ReleaseViewerResources();
             DisposeCache();
             base.OnClosed(e);
             ForceFullGarbageCollection();
+        }
+
+        private void CaptureLastViewedBlock()
+        {
+            try
+            {
+                if (items.Count == 0)
+                    return;
+
+                int index = GetCurrentItemIndex();
+                if (index < 0 || index >= items.Count)
+                    return;
+
+                ImageUnit unit = items[index].Unit;
+                if (unit != null && unit.Items.Count > 0)
+                    LastViewedRepFileName = unit.Items[0].FileName;
+            }
+            catch
+            {
+            }
         }
 
         private void PrepareCacheDirectory()
@@ -1056,7 +1158,7 @@ namespace ImageGalleryViewer
                 return;
 
             ImageUnit current = items[itemIndex].Unit;
-            if (current == null || !current.IsBlock)
+            if (current == null)
                 return;
 
             int unitIndex = units.IndexOf(current);
@@ -1193,7 +1295,7 @@ namespace ImageGalleryViewer
 
     internal static class ImageOrganizer
     {
-        private static readonly Regex BlockPattern = new Regex(@"^(.+?)_([0-9]+)(?:_([0-9]+))?$", RegexOptions.Compiled);
+        private static readonly Regex BlockPattern = new Regex(@"^(.+)_([0-9]+)$", RegexOptions.Compiled);
 
         public static List<ImageUnit> LoadUnits(string imgPath)
         {
@@ -1261,12 +1363,382 @@ namespace ImageGalleryViewer
                 int l1 = Int32.Parse(lm.Groups[2].Value);
                 int r1 = Int32.Parse(rm.Groups[2].Value);
                 if (l1 != r1) return l1.CompareTo(r1);
-
-                int l2 = lm.Groups[3].Success ? Int32.Parse(lm.Groups[3].Value) : -1;
-                int r2 = rm.Groups[3].Success ? Int32.Parse(rm.Groups[3].Value) : -1;
-                if (l2 != r2) return l2.CompareTo(r2);
             }
             return NaturalStringComparer.Instance.Compare(left, right);
+        }
+    }
+
+    internal enum TileMode
+    {
+        Select,
+        Stats
+    }
+
+    internal static class StatsStore
+    {
+        private static string GetStatsPath(ImageSource source)
+        {
+            DirectoryInfo imgParent = Directory.GetParent(source.ImgPath);
+            string parentPath = imgParent == null ? source.ImgPath : imgParent.FullName;
+            return Path.Combine(parentPath, ".ImageGalleryViewerStats.tsv");
+        }
+
+        public static Dictionary<string, int> Load(ImageSource source)
+        {
+            Dictionary<string, int> result = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            try
+            {
+                string path = GetStatsPath(source);
+                if (!File.Exists(path))
+                    return result;
+
+                foreach (string line in File.ReadAllLines(path))
+                {
+                    if (String.IsNullOrEmpty(line))
+                        continue;
+
+                    int tab = line.IndexOf('\t');
+                    if (tab <= 0)
+                        continue;
+
+                    int count;
+                    if (Int32.TryParse(line.Substring(0, tab), out count) && count > 0)
+                        result[line.Substring(tab + 1)] = count;
+                }
+            }
+            catch
+            {
+            }
+            return result;
+        }
+
+        public static void Save(ImageSource source, Dictionary<string, int> counts)
+        {
+            try
+            {
+                string path = GetStatsPath(source);
+                List<string> lines = new List<string>();
+                foreach (KeyValuePair<string, int> pair in counts)
+                {
+                    if (pair.Value > 0)
+                        lines.Add(pair.Value.ToString() + "\t" + pair.Key);
+                }
+
+                // A hidden file cannot be truncated by File.WriteAllLines (FileMode.Create),
+                // so clear the Hidden attribute first and re-apply it afterwards.
+                if (File.Exists(path))
+                {
+                    try { File.SetAttributes(path, File.GetAttributes(path) & ~FileAttributes.Hidden); }
+                    catch { }
+                }
+
+                File.WriteAllLines(path, lines.ToArray());
+                try { File.SetAttributes(path, File.GetAttributes(path) | FileAttributes.Hidden); }
+                catch { }
+            }
+            catch
+            {
+            }
+        }
+    }
+
+    internal sealed class TileWindow : Window
+    {
+        private const int ThumbDecodeWidth = 260;
+        private const double TileWidth = 200;
+        private const double TileHeight = 200;
+
+        private readonly ImageSource source;
+        private readonly TileMode mode;
+        private readonly string firstRepFileName;
+        private readonly Dictionary<string, int> counts;
+        private readonly List<TileData> tiles = new List<TileData>();
+        private CheckBox multiSelectCheck;
+        private bool isClosed;
+
+        public TileWindow(ImageSource source, TileMode mode)
+            : this(source, mode, null)
+        {
+        }
+
+        public TileWindow(ImageSource source, TileMode mode, string firstRepFileName)
+        {
+            this.source = source;
+            this.mode = mode;
+            this.firstRepFileName = firstRepFileName;
+            this.counts = StatsStore.Load(source);
+
+            Title = source.DisplayName + " - " + (mode == TileMode.Stats ? "Статистика" : "Отметить блоки") + " - " + AppVersion.WindowTitle;
+            Width = mode == TileMode.Stats ? 1200 : 1100;
+            Height = mode == TileMode.Stats ? 895 : 820;
+            MinWidth = 480;
+            MinHeight = 360;
+            WindowStartupLocation = WindowStartupLocation.CenterScreen;
+            Background = new SolidColorBrush(Color.FromRgb(28, 30, 34));
+            Foreground = Brushes.White;
+
+            Grid grid = new Grid();
+            grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+
+            DockPanel header = new DockPanel();
+            header.LastChildFill = true;
+            header.Background = new SolidColorBrush(Color.FromArgb(210, 16, 18, 22));
+            Grid.SetRow(header, 0);
+
+            if (mode == TileMode.Select)
+            {
+                multiSelectCheck = new CheckBox();
+                multiSelectCheck.Content = "Выбрать несколько";
+                multiSelectCheck.Foreground = Brushes.White;
+                multiSelectCheck.FontFamily = new FontFamily("Segoe UI");
+                multiSelectCheck.FontSize = 13;
+                multiSelectCheck.VerticalAlignment = VerticalAlignment.Center;
+                multiSelectCheck.Margin = new Thickness(10, 6, 12, 6);
+                multiSelectCheck.IsChecked = false;
+                DockPanel.SetDock(multiSelectCheck, Dock.Right);
+                header.Children.Add(multiSelectCheck);
+            }
+
+            TextBlock status = new TextBlock();
+            status.Text = source.DisplayName + "    " +
+                (mode == TileMode.Stats ? "Статистика отмеченных блоков" : "Кликните по плитке, чтобы добавить +1 в счётчик");
+            status.Foreground = Brushes.White;
+            status.FontFamily = new FontFamily("Segoe UI");
+            status.FontSize = 13;
+            status.Padding = new Thickness(10, 6, 10, 6);
+            status.VerticalAlignment = VerticalAlignment.Center;
+            status.TextTrimming = TextTrimming.CharacterEllipsis;
+            header.Children.Add(status);
+
+            WrapPanel wrap = new WrapPanel();
+            wrap.Orientation = Orientation.Horizontal;
+
+            ScrollViewer scroll = new ScrollViewer();
+            scroll.Content = wrap;
+            scroll.Padding = new Thickness(8);
+            scroll.VerticalScrollBarVisibility = ScrollBarVisibility.Auto;
+            scroll.HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled;
+            Grid.SetRow(scroll, 1);
+
+            grid.Children.Add(header);
+            grid.Children.Add(scroll);
+            Content = grid;
+
+            BuildTiles(wrap);
+            Loaded += delegate { StartLoadingThumbnails(); };
+        }
+
+        private void BuildTiles(WrapPanel wrap)
+        {
+            List<ImageUnit> units = ImageOrganizer.LoadUnits(source.ImgPath);
+            MoveAnchorToFront(units);
+
+            List<TileData> built = new List<TileData>();
+            foreach (ImageUnit unit in units)
+            {
+                if (unit.Items.Count == 0)
+                    continue;
+
+                ImageItem rep = unit.Items[0];
+                int count;
+                counts.TryGetValue(rep.FileName, out count);
+
+                if (mode == TileMode.Stats && count <= 0)
+                    continue;
+
+                built.Add(new TileData
+                {
+                    ImagePath = rep.Path,
+                    Name = Path.GetFileNameWithoutExtension(rep.FileName),
+                    RepFileName = rep.FileName,
+                    Count = count
+                });
+            }
+
+            if (mode == TileMode.Stats)
+            {
+                built.Sort(delegate(TileData a, TileData b)
+                {
+                    if (a.Count != b.Count)
+                        return b.Count.CompareTo(a.Count);
+                    return NaturalStringComparer.Instance.Compare(a.RepFileName, b.RepFileName);
+                });
+            }
+
+            foreach (TileData tile in built)
+            {
+                wrap.Children.Add(BuildCell(tile));
+                tiles.Add(tile);
+            }
+
+            if (tiles.Count == 0)
+            {
+                TextBlock empty = new TextBlock();
+                empty.Text = mode == TileMode.Stats ? "Нет отмеченных блоков" : "В папке нет изображений";
+                empty.Foreground = Brushes.White;
+                empty.FontFamily = new FontFamily("Segoe UI");
+                empty.FontSize = 16;
+                empty.Margin = new Thickness(20);
+                wrap.Children.Add(empty);
+            }
+        }
+
+        private void MoveAnchorToFront(List<ImageUnit> units)
+        {
+            if (mode != TileMode.Select || String.IsNullOrEmpty(firstRepFileName))
+                return;
+
+            for (int i = 1; i < units.Count; i++)
+            {
+                ImageUnit unit = units[i];
+                if (unit.Items.Count > 0 && String.Equals(unit.Items[0].FileName, firstRepFileName, StringComparison.OrdinalIgnoreCase))
+                {
+                    units.RemoveAt(i);
+                    units.Insert(0, unit);
+                    return;
+                }
+            }
+        }
+
+        private Border BuildCell(TileData tile)
+        {
+            StackPanel inner = new StackPanel();
+            inner.Width = TileWidth;
+
+            System.Windows.Controls.Image image = new System.Windows.Controls.Image();
+            image.Width = TileWidth;
+            image.Height = TileHeight;
+            image.Stretch = Stretch.Uniform;
+            RenderOptions.SetBitmapScalingMode(image, BitmapScalingMode.HighQuality);
+            tile.Image = image;
+
+            TextBlock caption = new TextBlock();
+            caption.Text = tile.Name;
+            caption.Foreground = Brushes.White;
+            caption.FontFamily = new FontFamily("Segoe UI");
+            caption.FontSize = 12;
+            caption.TextAlignment = TextAlignment.Center;
+            caption.TextWrapping = TextWrapping.Wrap;
+            caption.Margin = new Thickness(2, 4, 2, 0);
+
+            TextBlock countLabel = new TextBlock();
+            countLabel.Foreground = new SolidColorBrush(Color.FromRgb(120, 200, 255));
+            countLabel.FontFamily = new FontFamily("Segoe UI");
+            countLabel.FontSize = 13;
+            countLabel.FontWeight = FontWeights.Bold;
+            countLabel.TextAlignment = TextAlignment.Center;
+            countLabel.Margin = new Thickness(2, 2, 2, 0);
+            tile.CountLabel = countLabel;
+            UpdateCountLabel(tile);
+
+            inner.Children.Add(image);
+            inner.Children.Add(caption);
+            inner.Children.Add(countLabel);
+
+            Border cell = new Border();
+            cell.Margin = new Thickness(8);
+            cell.Padding = new Thickness(6);
+            cell.Background = new SolidColorBrush(Color.FromRgb(38, 41, 46));
+            cell.BorderBrush = new SolidColorBrush(Color.FromRgb(60, 64, 70));
+            cell.BorderThickness = new Thickness(1);
+            cell.CornerRadius = new CornerRadius(4);
+            cell.Child = inner;
+
+            if (mode == TileMode.Select)
+            {
+                cell.Cursor = Cursors.Hand;
+                cell.MouseLeftButtonUp += delegate { OnTileClicked(tile); };
+            }
+
+            return cell;
+        }
+
+        private void UpdateCountLabel(TileData tile)
+        {
+            if (mode == TileMode.Stats)
+                tile.CountLabel.Text = "× " + tile.Count.ToString();
+            else
+                tile.CountLabel.Text = tile.Count > 0 ? "× " + tile.Count.ToString() : "—";
+        }
+
+        private void OnTileClicked(TileData tile)
+        {
+            tile.Count++;
+            counts[tile.RepFileName] = tile.Count;
+            StatsStore.Save(source, counts);
+
+            if (multiSelectCheck != null && multiSelectCheck.IsChecked == true)
+                UpdateCountLabel(tile);
+            else
+                Close();
+        }
+
+        private void StartLoadingThumbnails()
+        {
+            foreach (TileData entry in tiles)
+            {
+                TileData tile = entry;
+                ThreadPool.QueueUserWorkItem(delegate
+                {
+                    BitmapSource bitmap = null;
+                    try { bitmap = LoadThumbnail(tile.ImagePath); }
+                    catch { }
+
+                    if (bitmap == null)
+                        return;
+
+                    Dispatcher.BeginInvoke((Action)delegate
+                    {
+                        if (isClosed)
+                            return;
+                        tile.Image.Source = bitmap;
+                    }, DispatcherPriority.Background);
+                });
+            }
+        }
+
+        private static BitmapSource LoadThumbnail(string path)
+        {
+            BitmapImage bitmap = new BitmapImage();
+            using (FileStream stream = File.OpenRead(path))
+            {
+                bitmap.BeginInit();
+                bitmap.StreamSource = stream;
+                bitmap.CacheOption = BitmapCacheOption.OnLoad;
+                bitmap.CreateOptions = BitmapCreateOptions.PreservePixelFormat;
+                bitmap.DecodePixelWidth = ThumbDecodeWidth;
+                bitmap.EndInit();
+                int forceLoad = bitmap.PixelWidth;
+            }
+            if (bitmap.CanFreeze)
+                bitmap.Freeze();
+            return bitmap;
+        }
+
+        protected override void OnClosed(EventArgs e)
+        {
+            isClosed = true;
+            foreach (TileData tile in tiles)
+            {
+                if (tile.Image != null)
+                    tile.Image.Source = null;
+            }
+            tiles.Clear();
+            Content = null;
+            base.OnClosed(e);
+            GC.Collect(GC.MaxGeneration, GCCollectionMode.Forced);
+            GC.WaitForPendingFinalizers();
+        }
+
+        private sealed class TileData
+        {
+            public string ImagePath;
+            public string Name;
+            public string RepFileName;
+            public int Count;
+            public TextBlock CountLabel;
+            public System.Windows.Controls.Image Image;
         }
     }
 

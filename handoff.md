@@ -24,13 +24,13 @@ Source code:
 
 Current production version:
 
-- `0.3.2`
+- `0.4.5`
 
 Current production metadata in `AppVersion`:
 
 - `Channel = "production"`
 - `ExeName = "ImageGalleryViewer.exe"`
-- `WindowTitle = "Image Gallery Viewer v0.3.2"`
+- `WindowTitle = "Image Gallery Viewer v0.4.5"`
 
 The app is a WPF implementation using:
 
@@ -53,10 +53,50 @@ The app is a WPF implementation using:
 - Displays images vertically at full window width.
 - Supports keyboard scrolling with `Up` / `Down`.
 - Supports `Space` to jump to the next image.
-- Supports `R` shuffle while preserving `name_N` and `name_N_N` sequences as intact blocks.
-- Supports `N` / `B` block navigation.
+- Supports `R` shuffle while preserving blocks as intact sequences.
+- Supports `N` / `B` block navigation (also works while sitting on a single image).
 - Supports `F11` fullscreen correctly on multi-monitor setups.
 - Shows a `?` help button in the folder picker.
+
+## Block Grouping (v0.3.3+)
+
+- A block is keyed on the full file name minus the trailing `_<number>`
+  (regex `^(.+)_([0-9]+)$` in `ImageOrganizer.BlockPattern`).
+- So `image1_1_1` and `image1_2_1` are separate blocks (`image1_1`, `image1_2`),
+  and `N` / `B` step between these sub-blocks rather than skipping the whole
+  `image1` group. `image1` with no `_<number>` is a single-image block.
+- Within a block, items sort by the trailing number (`CompareBlockItems`).
+
+## Mini-Gallery + Stats (v0.4.x)
+
+Reusable `TileWindow` (modes `TileMode.Select` / `TileMode.Stats`) shows a
+`WrapPanel` of tiles, one per block: representative = first image of the block,
+caption = its file name without extension, with a `× N` counter label.
+
+- **Select mode** opens automatically after a viewer closes
+  (`PickerWindow.ShowSelectGallery`). The block you were on when closing the
+  viewer (`ViewerWindow.LastViewedRepFileName`) is moved to the front.
+  Clicking a tile adds +1 to its counter. A top-right "Выбрать несколько"
+  checkbox (unchecked by default) keeps the window open for multi-marking;
+  unchecked, a click marks and closes immediately. Window size 1100×820.
+- **Stats mode** opens from a rounded 📊 chip on the right of each picker row
+  (`PickerWindow.BuildStatsChip` / `OpenStats`). It shows only blocks with
+  count > 0, sorted by count descending, with the image name and number.
+  Window size 1185×882.
+
+Counters persist per source folder via `StatsStore` in a hidden
+`.ImageGalleryViewerStats.tsv` (TSV: `count\tRepFileName`) next to the `img`
+folder's parent.
+
+- IMPORTANT: a hidden file cannot be truncated by `File.WriteAllLines`
+  (FileMode.Create throws Access denied), so `StatsStore.Save` clears the
+  Hidden attribute before writing and re-applies it afterwards. Removing this
+  reintroduces the "only the first mark is saved" bug.
+- Picker rows stretch full width (`ListBoxItem` `HorizontalContentAlignment =
+  Stretch`) so the stats chip sits flush at the right edge.
+- The picker list is NOT disabled during load (re-entry is guarded by the
+  `isLoading` flag); disabling it whitened the list background and made the
+  white folder names invisible.
 
 ## Memory Behavior
 
@@ -84,10 +124,13 @@ In RAM-only mode, closing the gallery detaches WPF `Image.Source`, clears viewer
 
 ## Build Notes
 
-`compile_comand.txt` is stored in the project directory and should use project-relative paths:
+`compile_comand.txt` is stored in the project directory. It now uses absolute
+paths and a pre-step that closes any running `ImageGalleryViewer` process
+(the exe is locked while running, blocking the rebuild):
 
-- source: `Program.cs`
-- output: `..\ImageGalleryViewer.exe`
+- source: `E:\Meatings\ImageGalleryViewer\Program.cs`
+- output: `E:\Meatings\ImageGalleryViewer.exe`
+- compiler: `C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe` (C# 5)
 
 When creating a beta, switch `AppVersion` back to beta and compile to:
 

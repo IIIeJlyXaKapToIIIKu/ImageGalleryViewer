@@ -3,7 +3,20 @@
 ## Production
 
 - `ImageGalleryViewer.exe`
-  - Current production build: `v0.3.2`.
+  - Current production build: `v0.4.5`.
+  - Stats window now opens at 1185×882; the post-viewer select window stays at 1100×820.
+  - `v0.4.4`: fixes the picker turning white with invisible folder names while a folder loads: the list is no longer disabled (re-entry was already guarded by the loading flag), so the dark background and white text remain visible.
+  - `v0.4.3`: adds a top-right "Выбрать несколько" checkbox (unchecked by default) to the post-viewer select window: when checked, clicking tiles marks them without closing, so several blocks can be marked in one session.
+  - `v0.4.2`: stats view now sorts tiles by count descending (ties by natural name order).
+  - `v0.4.1`: fixes counters not persisting after the first save: the hidden stats file could not be truncated, so the Hidden attribute is now cleared before writing and re-applied after.
+  - Clicking a tile in the post-viewer mini-gallery now marks the block (+1) and closes the window immediately.
+  - Main picker window height increased to 1000.
+  - `v0.4.0`: adds a tiled mini-gallery shown after a viewer closes: one tile per block (first image + caption); clicking a tile adds +1 to that block's counter. The block you were on when closing the viewer is moved to the front.
+  - Each picker row now has a rounded stats chip (📊) on the far right that opens a read-only stats view showing only marked blocks with the image name and count.
+  - Counters are persisted per source folder in a hidden `.ImageGalleryViewerStats.tsv` file next to the `img` folder's parent.
+  - Picker rows now stretch full width so the stats chip sits flush at the right edge.
+  - `v0.3.3`: block grouping keys on the full name minus the trailing `_<number>` (`image1_1_1` / `image1_2_1` are separate blocks); `N`/`B` step between sub-blocks and also work from single images.
+  - Previous production build: `v0.3.2`.
   - Promoted from `ImageGalleryViewer_beta_v0.3.2.exe`.
   - Loads all selected-folder images before opening the viewer and fixes empty-space picker clicks.
   - Adds a square `?` help button to the folder picker header.
